@@ -19,6 +19,11 @@ public class BabyLLM {
 //        System.out.println("decoded: " + decoded);
 
         //babyLLM.trigram;
+
+        for (int i = 0; i < 20; i++) {
+            String nextWord = babyLLM.trigram.getNextWord("<eos>", "os");
+            System.out.println("next word: " + nextWord);
+        }
     }
 
 }
