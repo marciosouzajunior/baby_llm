@@ -19,15 +19,17 @@ public class Trigram {
     Map<String, Map<String, Integer>> trigramCounts = new HashMap<>();
     Random rand = new Random();
 
-    public Trigram() {
+    public Trigram(String locale) {
 
-        String corpus = readFile("corpus.txt");
+        String corpus = readFile("corpus_" + locale + ".txt");
         String[] words = corpus.split("\\s+");
 
         for (int i = 0; i < words.length - 2; i++) {
 
             String twoWords = words[i] + "$" + words[i+1];
             String nextWord = words[i+2];
+            twoWords = twoWords.toLowerCase();
+            nextWord = nextWord.toLowerCase();
 
             Map<String, Integer> tokenCountMap;
 
@@ -55,26 +57,58 @@ public class Trigram {
 
     }
 
+    private String readFile(String fileName) {
+        Path path = Paths.get("src", "trigram", fileName);
+        try {
+            return Files.readString(path, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     /*
      This function selects the next word using weighted random sampling.
 
      Each possible next word has an associated weight (its frequency count).
-     You can imagine all words laid out on a number line, where each word
-     occupies an interval whose size is proportional to its count.
+     Conceptually, all words are laid out on a number line, where each word
+     occupies a contiguous interval whose size is proportional to its count.
 
-     Example:
+     Example (counts):
 
             A       B   C
       _____________________
       |     3     | 1 | 1 |
       ~~~~~~~~~~~~~~~~~~~~~
+       0    1     2   3   4   (total = 5)
 
-     The total weight is the sum of all counts (5 in this example).
-     A random integer is drawn uniformly from the range [0, total).
+     A random integer r is drawn uniformly from the range [0, total).
+     The goal is to determine which interval contains r.
 
-     Then we iterate through the words, accumulating their counts.
-     When the accumulated count exceeds the random number, we have found
-     the interval in which the random number falls, and we return that word.
+     ------------------------------------------------------------------
+     Two equivalent ways to find the selected word:
+     ------------------------------------------------------------------
+
+     1) CUMULATIVE (GROWING CURSOR) APPROACH
+        We iterate from left to right, accumulating the counts.
+        When the accumulated sum becomes greater than r, we have found
+        the interval that contains r, and the corresponding word is returned.
+
+            cursor = 0
+            cursor += count(word)
+            if cursor > r → select word
+
+     2) SUBTRACTION (SHRINKING RANDOM) APPROACH
+        We iterate from left to right, subtracting each word's count from r.
+        When r becomes negative, it means the original random value fell
+        inside the current word's interval, so that word is selected.
+
+            r -= count(word)
+            if r < 0 → select word
+
+     Although these approaches look different, they are mathematically
+     identical. In both cases, the iteration order is left-to-right;
+     what changes is the frame of reference: either the cursor grows
+     upward to reach r, or r shrinks downward to cross zero.
 
      Words with larger counts occupy larger intervals, making them more
      likely to be selected, while still allowing less frequent words
@@ -97,13 +131,21 @@ public class Trigram {
         int randomInt = rand.nextInt(total);
         int cumulativeCount = 0;
 
-        for (Map.Entry<String, Integer> entry : tokenCountMap.entrySet()){
-
-            // System.out.println(entry.getKey() + " -> " + entry.getValue() + " (" + (double)entry.getValue() / tokenCountMap.size() + ")");
+        for (Map.Entry<String, Integer> entry : tokenCountMap.entrySet()) {
 
             cumulativeCount += entry.getValue();
 
-            if (cumulativeCount > randomInt){
+//            printVector(
+//                    tokenCountMap,
+//                    total,
+//                    randomInt,
+//                    cumulativeCount,
+//                    entry.getKey(),
+//                    entry.getValue()
+//            );
+
+            if (cumulativeCount > randomInt) {
+                // System.out.println("➡ SELECTED: " + entry.getKey());
                 return entry.getKey();
             }
 
@@ -112,14 +154,120 @@ public class Trigram {
         return "";
     }
 
-    private String readFile(String fileName) {
-        Path path = Paths.get("src", "trigram", fileName);
-        try {
-            return Files.readString(path, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+    public void generateSentence(String word1, String word2) {
+
+        System.out.print(word1.equals("<eos>") ? "" : word1 + " ");
+        System.out.print(word2.equals("<eos>") ? "" : word2 + " ");
+        String nextWord;
+
+        while (true) {
+
+            nextWord = getNextWord(word1, word2);
+
+            if (nextWord.equals("<eos>")){
+                break;
+            }
+
+            System.out.print(nextWord + " ");
+            word1 = word2;
+            word2 = nextWord;
+
         }
+
+        System.out.print("\n***\n");
     }
 
+    private void printVector(
+            Map<String, Integer> map,
+            int total,
+            int randomInt,
+            int cumulativeCount,
+            String currentWord,
+            int currentWordCount
+    ) {
+        int cellWidth = 16;
+        int slotWidth = cellWidth + 1;
+        int totalWidth = total * slotWidth;
+
+        StringBuilder arrowOriginal = new StringBuilder();
+        StringBuilder valueOriginal = new StringBuilder();
+        StringBuilder arrowCurrent  = new StringBuilder();
+        StringBuilder valueCurrent  = new StringBuilder();
+
+        StringBuilder border    = new StringBuilder();
+        StringBuilder indexLine = new StringBuilder();
+        StringBuilder wordLine  = new StringBuilder();
+
+        // --- Initialize arrow lines with spaces ---
+        for (int i = 0; i < totalWidth; i++) {
+            arrowOriginal.append(' ');
+            valueOriginal.append(' ');
+            arrowCurrent.append(' ');
+            valueCurrent.append(' ');
+        }
+
+        // --- Place original randomInt arrow ---
+        int rPos = randomInt * slotWidth + cellWidth / 2;
+        if (rPos >= 0 && rPos < totalWidth) {
+            arrowOriginal.setCharAt(rPos, '↓');
+            String rLabel = "r=" + randomInt;
+            int start = Math.max(0, rPos - rLabel.length() / 2);
+            for (int i = 0; i < rLabel.length() && start + i < totalWidth; i++) {
+                valueOriginal.setCharAt(start + i, rLabel.charAt(i));
+            }
+        }
+
+        // --- Place cumulative arrow (last covered index) ---
+        if (cumulativeCount > 0) {
+            int cPos = (cumulativeCount - 1) * slotWidth + cellWidth / 2;
+            if (cPos >= 0 && cPos < totalWidth) {
+                arrowCurrent.setCharAt(cPos, '↓');
+                String cLabel = "cum=" + cumulativeCount;
+                int start = Math.max(0, cPos - cLabel.length() / 2);
+                for (int i = 0; i < cLabel.length() && start + i < totalWidth; i++) {
+                    valueCurrent.setCharAt(start + i, cLabel.charAt(i));
+                }
+            }
+        }
+
+        // --- Border ---
+        for (int i = 0; i < total; i++) {
+            border.append("+");
+            for (int j = 0; j < cellWidth; j++) {
+                border.append("-");
+            }
+        }
+        border.append("+");
+
+        // --- Slots ---
+        int index = 0;
+        for (Map.Entry<String, Integer> entry : map.entrySet()) {
+            for (int i = 0; i < entry.getValue(); i++) {
+                indexLine.append(String.format("|%-" + cellWidth + "d", index));
+                wordLine.append(String.format("|%-" + cellWidth + "s", entry.getKey()));
+                index++;
+            }
+        }
+        indexLine.append("|");
+        wordLine.append("|");
+
+        // --- Print ---
+        System.out.println(arrowOriginal);
+        System.out.println(valueOriginal);
+        System.out.println(arrowCurrent);
+        System.out.println(valueCurrent);
+        System.out.println(border);
+        System.out.println(indexLine);
+        System.out.println(border);
+        System.out.println(wordLine);
+        System.out.println(border);
+
+        boolean condition = cumulativeCount > randomInt;
+
+        System.out.println("Checking word: \"" + currentWord + "\"");
+        System.out.println("Word count: " + currentWordCount);
+        System.out.println("Condition (cum > r): " + (condition ? "YES ✅" : "NO ❌"));
+        System.out.println();
+    }
 
 }

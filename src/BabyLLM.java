@@ -5,7 +5,7 @@ import java.util.List;
 public class BabyLLM {
 
     Tokenizer tokenizer = new Tokenizer();
-    Trigram trigram = new Trigram();
+    Trigram trigram = new Trigram("pt");
 
     public static void main(String[] args) {
 
@@ -20,10 +20,11 @@ public class BabyLLM {
 
         //babyLLM.trigram;
 
-        for (int i = 0; i < 20; i++) {
-            String nextWord = babyLLM.trigram.getNextWord("<eos>", "os");
-            System.out.println("next word: " + nextWord);
+        for (int i = 0; i < 10; i++){
+            babyLLM.trigram.generateSentence("o", "homem");
         }
     }
+
+
 
 }
