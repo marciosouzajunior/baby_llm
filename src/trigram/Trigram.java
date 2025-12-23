@@ -1,27 +1,43 @@
 package trigram;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.*;
 
 public class Trigram {
 
     /*
-    ("tokenA", "tokenB") → {
-        "tokenC": count,
-        "tokenD": count,
-        "tokenE": count
-    }
+     Trains the trigram language model on a raw text corpus.
+
+     The corpus is split into a sequence of words. For each sliding window
+     of three consecutive words:
+
+         (word[i], word[i+1]) -> word[i+2]
+
+     we treat the first two words as the context (a bigram) and the third
+     word as the target to be predicted.
+
+     Internally, the model builds a nested map structure:
+
+         "wordA$wordB" -> {
+             "wordC": count,
+             "wordD": count,
+             ...
+         }
+
+     Each time a particular third word follows the same two-word context,
+     its count is incremented. These counts later serve as weights during
+     generation, allowing the model to sample more frequent continuations
+     with higher probability.
+
+     This method performs no learning in the machine-learning sense
+     (no gradients, no optimization). It simply collects frequency
+     statistics from the corpus, which is the core idea behind classic
+     n-gram language models.
     */
     Map<String, Map<String, Integer>> trigramCounts = new HashMap<>();
     Random rand = new Random();
 
-    public Trigram(String locale) {
+    public void train(String corpus) {
 
-        String corpus = readFile("corpus_" + locale + ".txt");
         String[] words = corpus.split("\\s+");
 
         for (int i = 0; i < words.length - 2; i++) {
@@ -51,19 +67,8 @@ public class Trigram {
 
             }
 
-            // System.out.println(twoWords + " -> " + tokenCountMap);
-
         }
 
-    }
-
-    private String readFile(String fileName) {
-        Path path = Paths.get("src", "trigram", fileName);
-        try {
-            return Files.readString(path, StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     /*
@@ -135,14 +140,16 @@ public class Trigram {
 
             cumulativeCount += entry.getValue();
 
-//            printVector(
-//                    tokenCountMap,
-//                    total,
-//                    randomInt,
-//                    cumulativeCount,
-//                    entry.getKey(),
-//                    entry.getValue()
-//            );
+            /*
+            visualizeSampling(
+                    tokenCountMap,
+                    total,
+                    randomInt,
+                    cumulativeCount,
+                    entry.getKey(),
+                    entry.getValue()
+            );
+            */
 
             if (cumulativeCount > randomInt) {
                 // System.out.println("➡ SELECTED: " + entry.getKey());
@@ -154,6 +161,20 @@ public class Trigram {
         return "";
     }
 
+    /*
+     Generates a sentence starting from two initial words.
+
+     At each step, the model predicts the next word based on the previous
+     two words using the learned trigram statistics. The generated word
+     becomes part of the context for the next prediction, allowing the
+     sentence to grow one word at a time.
+
+     Generation continues until the special end-of-sentence token (<eos>)
+     is produced, which signals that the sentence should stop.
+
+     This method demonstrates how the trained trigram model can be used
+     to produce coherent text by chaining local word predictions.
+    */
     public void generateSentence(String word1, String word2) {
 
         System.out.print(word1.equals("<eos>") ? "" : word1 + " ");
@@ -162,7 +183,7 @@ public class Trigram {
 
         while (true) {
 
-            nextWord = getNextWord(word1, word2);
+            nextWord = getNextWord(word1.toLowerCase(), word2.toLowerCase());
 
             if (nextWord.equals("<eos>")){
                 break;
@@ -174,10 +195,24 @@ public class Trigram {
 
         }
 
-        System.out.print("\n***\n");
+        System.out.print("\n---\n");
     }
 
-    private void printVector(
+    /*
+     Helper method used for debugging and learning purposes.
+
+     It visually represents the weighted sampling process by printing
+     a horizontal "line" of word slots, showing:
+     - the original random value (r)
+     - the cumulative progress during iteration
+     - the current word being evaluated
+
+     This makes it easier to understand how the iteration over word counts
+     and the comparison logic lead to the selection of a specific word.
+     The method does not affect the model behavior and is meant purely
+     as a visualization aid.
+    */
+    private void visualizeSampling(
             Map<String, Integer> map,
             int total,
             int randomInt,
@@ -231,12 +266,8 @@ public class Trigram {
         }
 
         // --- Border ---
-        for (int i = 0; i < total; i++) {
-            border.append("+");
-            for (int j = 0; j < cellWidth; j++) {
-                border.append("-");
-            }
-        }
+        String cellBorder = "+" + "-".repeat(cellWidth);
+        border.append(cellBorder.repeat(Math.max(0, total)));
         border.append("+");
 
         // --- Slots ---
